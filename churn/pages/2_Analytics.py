@@ -1,124 +1,376 @@
+
 import streamlit as st
 import pandas as pd
 import plotly.express as px
+import plotly.graph_objects as go
 
-st.set_page_config(layout="wide")
+# ---------------- PAGE CONFIG ----------------
+st.set_page_config(
+    page_title="Customer Analytics",
+    page_icon="📊",
+    layout="wide"
+)
 
-# ---------- STYLE ----------
+# ---------------- CUSTOM CSS ----------------
 st.markdown("""
 <style>
-.stApp { background: linear-gradient(180deg, #f8fafc 0%, #eef2ff 100%); }
-.main-header {
-    text-align: center;
-    background: linear-gradient(90deg, #0ea5e9, #6366f1);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    font-size: 54px;
-    font-weight: 900;
-    margin-bottom: 18px;
+.main {
+    background-color: #f5f7fb;
 }
-.chart-card {
-    background: #ffffff;
+h1, h2, h3 {
+    color: #253858;
+}
+.metric-card {
+    background-color: white;
     padding: 20px;
-    border-radius: 18px;
-    border: 1px solid #e2e8f0;
-    box-shadow: 0 6px 20px rgba(15, 23, 42, 0.06);
-    margin-bottom: 20px;
+    border-radius: 12px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.08);
 }
 </style>
 """, unsafe_allow_html=True)
 
-st.markdown("<h1 class='main-header'>Analytics Intelligence Dashboard</h1>", unsafe_allow_html=True)
+# ---------------- HEADER ----------------
+st.title("📊 Customer Analytics Dashboard")
 
-file = st.file_uploader("Upload dataset to initialize analysis", type=["csv"])
+st.write(
+    "Analyze customer data, understand churn patterns "
+    "and explore important customer insights."
+)
 
-if file:
-    with st.spinner("Generating intelligence reports..."):
-        df = pd.read_csv(file)
+st.divider()
 
-        # ---------- KPI ----------
-        total = len(df)
-        churn = df["default"].sum()
-        rate = churn / total * 100
+# ---------------- CSV UPLOAD ----------------
+st.subheader("📁 Upload Customer Dataset")
 
-        c1, c2, c3 = st.columns(3)
-        with c1:
-            st.metric("Total Customers", f"{total:,}")
-        with c2:
-            st.metric("Churn Events", f"{churn:,}")
-        with c3:
-            st.metric("Global Churn Rate", f"{rate:.2f}%")
+uploaded_file = st.file_uploader(
+    "Upload your CSV file",
+    type=["csv"]
+)
 
-        st.markdown("<br>", unsafe_allow_html=True)
+if uploaded_file is None:
+    st.info("Please upload a customer CSV file to view analytics.")
 
-        # ---------- CHARTS ----------
-        col_left, col_right = st.columns(2)
+    st.markdown("""
+    **Expected input columns may include:**
+    - age
+    - gender
+    - income_numeric
+    - tenure
+    - sub_plan
+    - contract
+    - monthly_charge
+    - auto_renewal
+    - late_payment
+    - failed_transaction
+    """)
 
-        with col_left:
-            st.markdown("<div class='chart-card'>", unsafe_allow_html=True)
-            chart_data = df["default"].value_counts().reset_index()
-            chart_data.columns = ["Status", "Count"]
-            chart_data["Status"] = chart_data["Status"].map({0: "Retained", 1: "Churned"})
-            
-            fig1 = px.pie(
-                chart_data, values="Count", names="Status",
-                hole=0.6,
-                color="Status",
-                color_discrete_map={"Retained": "#22c55e", "Churned": "#ef4444"},
-                title="<b>Customer Retention Overview</b>"
-            )
-            fig1.update_layout(
-                paper_bgcolor='#ffffff',
-                plot_bgcolor='#ffffff',
-                template="plotly_white",
-                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
-            )
-            st.plotly_chart(fig1, use_container_width=True)
-            st.markdown("</div>", unsafe_allow_html=True)
+    st.stop()
 
-        with col_right:
-            st.markdown("<div class='chart-card'>", unsafe_allow_html=True)
-            fig2 = px.histogram(
-                df, x="tenure", nbins=30,
-                color_discrete_sequence=["#22d3ee"],
-                title="<b>Tenure Distribution</b>"
-            )
-            fig2.update_layout(
-                paper_bgcolor='#ffffff',
-                plot_bgcolor='#ffffff',
-                template="plotly_white",
-                xaxis_title="Months with Service",
-                yaxis_title="Customer Count"
-            )
-            st.plotly_chart(fig2, use_container_width=True)
-            st.markdown("</div>", unsafe_allow_html=True)
+# ---------------- LOAD DATA ----------------
+try:
+    df = pd.read_csv(uploaded_file)
 
-        st.markdown("<div class='chart-card'>", unsafe_allow_html=True)
-        fig3 = px.box(
-            df, x="default", y="monthly_charge",
-            color="default",
-            color_discrete_map={0: "#22c55e", 1: "#ef4444"},
-            labels={"default": "Churn Status", "monthly_charge": "Monthly Charge ($)"},
-            title="<b>Monthly Charge Correlation with Churn</b>"
+    # Clean column names
+    df.columns = (
+        df.columns.astype(str)
+        .str.strip()
+        .str.lower()
+    )
+
+    if df.empty:
+        st.error("The uploaded CSV file is empty.")
+        st.stop()
+
+except Exception as e:
+    st.error(f"Unable to read CSV file: {e}")
+    st.stop()
+
+# ---------------- DATA OVERVIEW ----------------
+st.subheader("📋 Dataset Overview")
+
+col1, col2, col3, col4 = st.columns(4)
+
+total_customers = len(df)
+total_columns = len(df.columns)
+missing_values = int(df.isnull().sum().sum())
+duplicate_rows = int(df.duplicated().sum())
+
+col1.metric("Total Customers", total_customers)
+col2.metric("Total Features", total_columns)
+col3.metric("Missing Values", missing_values)
+col4.metric("Duplicate Records", duplicate_rows)
+
+# ---------------- DATA PREVIEW ----------------
+st.subheader("👀 Customer Data Preview")
+
+st.dataframe(
+    df.head(20),
+    use_container_width=True
+)
+
+st.caption(
+    f"Showing first {min(20, len(df))} records out of {len(df)}."
+)
+
+# ---------------- CHURN COLUMN DETECTION ----------------
+possible_target_columns = [
+    "default",
+    "churn",
+    "churned",
+    "exited",
+    "target",
+    "prediction",
+    "churn_prediction"
+]
+
+target_column = None
+
+for column in possible_target_columns:
+    if column in df.columns:
+        target_column = column
+        break
+
+st.divider()
+
+# ==================================================
+# CHURN ANALYSIS
+# ==================================================
+
+st.subheader("🎯 Customer Churn Analysis")
+
+if target_column is not None:
+
+    target_values = df[target_column]
+
+    # Convert common text labels into churn categories
+    text_values = target_values.astype(str).str.strip().str.lower()
+
+    churn_labels = [
+        "1", "yes", "true", "churn", "churned",
+        "default", "exited", "high risk"
+    ]
+
+    stay_labels = [
+        "0", "no", "false", "stay", "stayed",
+        "active", "not churned", "low risk"
+    ]
+
+    if text_values.isin(churn_labels + stay_labels).all():
+
+        churn_count = int(text_values.isin(churn_labels).sum())
+        stay_count = int(text_values.isin(stay_labels).sum())
+
+        churn_data = pd.DataFrame({
+            "Customer Status": ["Churn", "Stay"],
+            "Count": [churn_count, stay_count]
+        })
+
+        churn_rate = (
+            churn_count / total_customers * 100
+            if total_customers > 0 else 0
         )
-        fig3.update_layout(
-            paper_bgcolor='#ffffff',
-            plot_bgcolor='#ffffff',
-            template="plotly_white"
-        )
-        st.plotly_chart(fig3, use_container_width=True)
-        st.markdown("</div>", unsafe_allow_html=True)
 
-        # ---------- DOWNLOAD ----------
-        csv = df.to_csv(index=False).encode()
-        st.download_button(
-            "📥 Export Full Intelligence Report",
-            csv,
-            "churn_analytics_report.csv",
-            "text/csv",
-            use_container_width=True
+        col1, col2, col3 = st.columns(3)
+
+        col1.metric("Churn Customers", churn_count)
+        col2.metric("Customers Staying", stay_count)
+        col3.metric("Churn Rate", f"{churn_rate:.2f}%")
+
+        chart_col1, chart_col2 = st.columns(2)
+
+        with chart_col1:
+            fig = px.pie(
+                churn_data,
+                names="Customer Status",
+                values="Count",
+                title="Customer Churn Distribution",
+                hole=0.45
+            )
+
+            st.plotly_chart(
+                fig,
+                use_container_width=True
+            )
+
+        with chart_col2:
+            fig = px.bar(
+                churn_data,
+                x="Customer Status",
+                y="Count",
+                color="Customer Status",
+                title="Churn vs Non-Churn Customers",
+                text="Count"
+            )
+
+            st.plotly_chart(
+                fig,
+                use_container_width=True
+            )
+
+    else:
+        st.warning(
+            f"The column '{target_column}' exists, "
+            "but its values could not be recognized as churn/stay labels. "
+            "Please check the target column values."
         )
 
 else:
-    st.info("👋 Please upload a customer dataset (CSV) to begin the analysis.")
-    st.image("https://images.unsplash.com/photo-1551288049-bbbda540d3b9?auto=format&fit=crop&q=80&w=1000", caption="Global Churn Analytics")
+    st.warning(
+        "Churn target column is not available in this dataset."
+    )
+
+    st.info(
+        "Your uploaded file contains customer input features only. "
+        "Actual churn statistics require a labeled dataset with a "
+        "'default' or 'churn' column."
+    )
+
+# ==================================================
+# NUMERICAL ANALYSIS
+# ==================================================
+
+st.divider()
+st.subheader("📈 Numerical Feature Analysis")
+
+numeric_df = df.select_dtypes(include=["number"])
+
+if not numeric_df.empty:
+
+    selected_numeric = st.selectbox(
+        "Select Numerical Feature",
+        numeric_df.columns.tolist()
+    )
+
+    fig = px.histogram(
+        df,
+        x=selected_numeric,
+        title=f"Distribution of {selected_numeric}",
+        marginal="box",
+        nbins=20
+    )
+
+    st.plotly_chart(
+        fig,
+        use_container_width=True
+    )
+
+    st.subheader("📊 Statistical Summary")
+
+    st.dataframe(
+        numeric_df.describe().round(2),
+        use_container_width=True
+    )
+
+else:
+    st.info("No numerical columns found in this dataset.")
+
+# ==================================================
+# CATEGORICAL ANALYSIS
+# ==================================================
+
+st.divider()
+st.subheader("📌 Categorical Feature Analysis")
+
+categorical_df = df.select_dtypes(
+    include=["object", "category", "bool"]
+)
+
+if not categorical_df.empty:
+
+    selected_category = st.selectbox(
+        "Select Categorical Feature",
+        categorical_df.columns.tolist()
+    )
+
+    category_counts = (
+        df[selected_category]
+        .fillna("Missing")
+        .astype(str)
+        .value_counts()
+        .reset_index()
+    )
+
+    category_counts.columns = ["Category", "Count"]
+
+    fig = px.bar(
+        category_counts,
+        x="Category",
+        y="Count",
+        color="Category",
+        title=f"Distribution of {selected_category}",
+        text="Count"
+    )
+
+    st.plotly_chart(
+        fig,
+        use_container_width=True
+    )
+
+else:
+    st.info("No categorical columns found in this dataset.")
+
+# ==================================================
+# CORRELATION ANALYSIS
+# ==================================================
+
+st.divider()
+st.subheader("🔥 Correlation Analysis")
+
+if len(numeric_df.columns) >= 2:
+
+    correlation = numeric_df.corr()
+
+    fig = px.imshow(
+        correlation,
+        text_auto=".2f",
+        aspect="auto",
+        color_continuous_scale="RdBu_r",
+        title="Feature Correlation Heatmap"
+    )
+
+    st.plotly_chart(
+        fig,
+        use_container_width=True
+    )
+
+else:
+    st.info(
+        "At least two numerical columns are required "
+        "for correlation analysis."
+    )
+
+# ==================================================
+# MISSING VALUES ANALYSIS
+# ==================================================
+
+st.divider()
+st.subheader("🔍 Missing Values Analysis")
+
+missing_df = pd.DataFrame({
+    "Column": df.columns,
+    "Missing Values": df.isnull().sum().values,
+    "Missing Percentage": (
+        df.isnull().mean().values * 100
+    ).round(2)
+})
+
+missing_df = missing_df.sort_values(
+    by="Missing Values",
+    ascending=False
+)
+
+st.dataframe(
+    missing_df,
+    use_container_width=True
+)
+
+# ---------------- FOOTER ----------------
+st.divider()
+
+st.success(
+    "Customer Analytics Dashboard loaded successfully!"
+)
+
+st.caption(
+    "Customer Churn Prediction System | Machine Learning Analytics"
+)

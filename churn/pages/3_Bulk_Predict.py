@@ -1,143 +1,204 @@
-import streamlit as st
-import pandas as pd
+
+import os
 import requests
-import plotly.express as px
+import pandas as pd
+import streamlit as st
+import time
 
-st.set_page_config(layout="wide")
+# ---------------- PAGE CONFIG ----------------
+st.set_page_config(
+    page_title="Bulk Churn Prediction",
+    page_icon="📂",
+    layout="wide"
+)
 
-# ---------- STYLE ----------
-st.markdown("""
-<style>
-.stApp { background: linear-gradient(180deg, #f8fafc 0%, #eef2ff 100%); }
-.main-header {
-    text-align: center;
-    background: linear-gradient(90deg, #0ea5e9, #6366f1);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    font-size: 54px;
-    font-weight: 900;
-    margin-bottom: 24px;
-}
-.status-card {
-    background: #ffffff;
-    padding: 18px;
-    border-radius: 16px;
-    border: 1px solid #e2e8f0;
-    box-shadow: 0 6px 20px rgba(15, 23, 42, 0.06);
-    margin-bottom: 16px;
-}
-.stButton button {
-    background: linear-gradient(90deg, #0ea5e9, #6366f1) !important;
-    color: #ffffff !important;
-    font-weight: 700 !important;
-    border-radius: 12px !important;
-    padding: 10px 25px !important;
-}
-</style>
-""", unsafe_allow_html=True)
+# ---------------- API CONFIG ----------------
+API_URL = os.getenv(
+    "API_URL",
+    "https://customer-churn-prediction-system-glmv.onrender.com"
+).rstrip("/")
 
-st.markdown("<h1 class='main-header'>Bulk Processing Engine</h1>", unsafe_allow_html=True)
+# ---------------- HEADER ----------------
+st.title("📂 Bulk Customer Churn Prediction")
+st.write(
+    "Upload a CSV file to predict churn for multiple customers at once."
+)
 
-file = st.file_uploader("Upload customer batch file", type=["csv", "xlsx"])
+st.divider()
 
-if file is not None:
-    # read file
-    if file.name.endswith(".csv"):
-        df = pd.read_csv(file)
-    else:
-        df = pd.read_excel(file)
+# ---------------- REQUIRED COLUMNS ----------------
+REQUIRED_COLUMNS = [
+    "age",
+    "gender",
+    "income_numeric",
+    "tenure",
+    "sub_plan",
+    "contract",
+    "monthly_charge",
+    "auto_renewal",
+    "late_payment",
+    "failed_transaction"
+]
 
-    st.markdown(f"""
-    <div class='status-card'>
-        <h4 style='margin:0; color:#22d3ee;'>Batch Metadata</h4>
-        <p style='margin:5px 0 0 0; color:#94a3b8;'>File: {file.name} | Records: {len(df)}</p>
-    </div>
-    """, unsafe_allow_html=True)
-    
-    with st.expander("🔍 Preview Raw Data"):
-        st.dataframe(df.head(10), use_container_width=True)
+# ---------------- CSV TEMPLATE ----------------
+sample_data = pd.DataFrame([
+    [25, "M", 1, 3, "basic", "monthly", 299, 0, 1, 1],
+    [42, "F", 2, 18, "standard", "annual", 199, 1, 0, 0],
+    [31, "M", 3, 24, "premium", "annual", 450, 1, 0, 0]
+], columns=REQUIRED_COLUMNS)
 
-    # fast demo limit
-    process_df = df.head(200).copy()
+st.download_button(
+    "⬇️ Download CSV Template",
+    data=sample_data.to_csv(index=False).encode("utf-8"),
+    file_name="churn_template.csv",
+    mime="text/csv"
+)
 
-    st.markdown("---")
-    if st.button("🚀 Execute Neural Analysis", use_container_width=True):
-        preds = []
-        total = len(process_df)
-        
-        progress_bar = st.progress(0)
-        status_text = st.empty()
+# ---------------- FILE UPLOAD ----------------
+uploaded_file = st.file_uploader(
+    "Upload Customer CSV",
+    type=["csv"]
+)
 
-        for i, (_, row) in enumerate(process_df.iterrows()):
-            status_text.text(f"Processing record {i+1} of {total}...")
-            
-            payload = {
-                "age": row["age"],
-                "gender": row["gender"],
-                "income_numeric": row["income_numeric"],
-                "tenure": row["tenure"],
-                "sub_plan": row["sub_plan"],
-                "contract": row["contract"],
-                "monthly_charge": row["monthly_charge"],
-                "auto_renewal": row["auto_renewal"],
-                "late_payment": row["late_payment"],
-                "failed_transaction": row["failed_transaction"]
-            }
+if uploaded_file is not None:
 
-            try:
-                res = requests.post(
-                    "http://127.0.0.1:5000/predict",
-                    json=payload
-                ).json()
-                preds.append(res.get("prediction", None))
-            except:
-                preds.append(None)
+    try:
+        df = pd.read_csv(uploaded_file)
+        df.columns = df.columns.str.strip().str.lower()
 
-            progress_bar.progress((i + 1) / total)
+        st.success("CSV uploaded successfully!")
 
-        process_df["churn_prediction"] = preds
-        status_text.success(f"Analysis complete for {total} records!")
+        st.subheader("📋 Uploaded Dataset")
 
-        # Results visualization
-        col1, col2 = st.columns([1, 1.5])
-        
-        with col1:
-            st.subheader("Distribution")
-            chart = process_df["churn_prediction"].value_counts().reset_index()
-            chart.columns = ["Risk Level", "Count"]
-            chart["Risk Level"] = chart["Risk Level"].map({0: "Low Risk", 1: "High Risk"})
-            
-            fig = px.pie(
-                chart, values="Count", names="Risk Level", 
-                hole=0.6,
-                color="Risk Level",
-                color_discrete_map={"Low Risk": "#22c55e", "High Risk": "#ef4444"}
+        col1, col2, col3 = st.columns(3)
+
+        col1.metric("Total Customers", len(df))
+        col2.metric("Total Columns", len(df.columns))
+        col3.metric("Missing Values", int(df.isnull().sum().sum()))
+
+        st.dataframe(df.head(20), use_container_width=True)
+
+        # ---------------- VALIDATION ----------------
+        missing_columns = [
+            col for col in REQUIRED_COLUMNS
+            if col not in df.columns
+        ]
+
+        if missing_columns:
+            st.error(
+                "Missing required columns: "
+                + ", ".join(missing_columns)
             )
-            fig.update_layout(
-                paper_bgcolor='#ffffff',
-                plot_bgcolor='#ffffff',
-                template="plotly_white",
-                showlegend=True
+            st.stop()
+
+        if df.empty:
+            st.error("Uploaded CSV is empty.")
+            st.stop()
+
+        # ---------------- PREDICTION ----------------
+        if st.button("🚀 Start Bulk Prediction", use_container_width=True):
+
+            results = []
+            progress = st.progress(0)
+            status = st.empty()
+
+            for index, row in df.iterrows():
+
+                customer_data = {}
+
+                for col in REQUIRED_COLUMNS:
+                    customer_data[col] = row[col]
+
+                try:
+                    response = requests.post(
+                        f"{API_URL}/predict",
+                        json=customer_data,
+                        timeout=120
+                    )
+
+                    response.raise_for_status()
+                    output = response.json()
+
+                    if "error" in output:
+                        raise ValueError(output["error"])
+
+                    prediction = int(output["prediction"])
+                    probability = float(output["probability"])
+
+                    results.append({
+                        "Customer_ID": index + 1,
+                        "Prediction": prediction,
+                        "Churn_Probability": probability,
+                        "Churn_Percentage": round(probability * 100, 2),
+                        "Risk_Status": (
+                            "High Risk" if prediction == 1
+                            else "Low Risk"
+                        ),
+                        "API_Status": "Success"
+                    })
+
+                except Exception as e:
+                    results.append({
+                        "Customer_ID": index + 1,
+                        "Prediction": None,
+                        "Churn_Probability": None,
+                        "Churn_Percentage": None,
+                        "Risk_Status": "Prediction Failed",
+                        "API_Status": str(e)
+                    })
+
+                progress.progress((index + 1) / len(df))
+                status.write(
+                    f"Processing customer {index + 1} of {len(df)}"
+                )
+
+            # ---------------- SAVE RESULTS ----------------
+            results_df = pd.DataFrame(results)
+
+            # Combine original customer details with predictions
+            final_df = pd.concat(
+                [
+                    df.reset_index(drop=True),
+                    results_df.drop(columns=["Customer_ID"])
+                ],
+                axis=1
             )
-            st.plotly_chart(fig, use_container_width=True)
 
-        with col2:
-            st.subheader("High Risk Segment")
-            high_risk = process_df[process_df["churn_prediction"] == 1]
-            st.dataframe(high_risk, use_container_width=True)
+            st.session_state["bulk_results"] = final_df
 
-        # Download
-        csv = process_df.to_csv(index=False).encode()
-        st.download_button(
-            "📥 Download Augmented Dataset",
-            csv,
-            "bulk_predictions.csv",
-            "text/csv",
-            use_container_width=True
-        )
-else:
-    st.info("Please upload a CSV or Excel file containing customer profiles to run bulk analysis.")
-    st.markdown("""
-    **Required Columns:**
-    `age`, `gender`, `income_numeric`, `tenure`, `sub_plan`, `contract`, `monthly_charge`, `auto_renewal`, `late_payment`, `failed_transaction`
-    """)
+            success_count = int(
+                (results_df["API_Status"] == "Success").sum()
+            )
+
+            failed_count = len(results_df) - success_count
+
+            st.success("Bulk prediction process completed!")
+
+            col1, col2, col3 = st.columns(3)
+
+            col1.metric("Total Processed", len(df))
+            col2.metric("Successful", success_count)
+            col3.metric("Failed", failed_count)
+
+            st.subheader("📊 Bulk Prediction Results")
+
+            st.dataframe(
+                final_df,
+                use_container_width=True
+            )
+
+            csv_data = final_df.to_csv(index=False).encode("utf-8")
+
+            st.download_button(
+                "⬇️ Download Prediction Results",
+                data=csv_data,
+                file_name="bulk_churn_predictions.csv",
+                mime="text/csv"
+            )
+
+    except Exception as e:
+        st.error(f"Error reading CSV: {e}")
+
+# ---------------- FOOTER ----------------
+st.divider()
+st.caption("Customer Churn Prediction System | Bulk Prediction")
